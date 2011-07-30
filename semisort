@@ -1,0 +1,109 @@
+#!/usr/bin/env python
+
+"""Usage: semisort [options] 
+
+Sorts a file (or stream) whose elements are "almost" in order.  
+
+Ordering options:
+  -b: Buffer size. 
+
+Non-ordering options:
+  -t: Run tests
+  -h: Display this menu
+
+Cavets: 
+
+Elements can be at most "buffersize" elements away from their proper
+sorted location.
+
+semisort can sort streaming data, however the must recent "buffersize"
+items are cached in memory for potential reordering.
+
+Examples:
+
+tail -f /var/log/syslog | semisort -b 10 
+
+"With her top down baby she flies."
+"""
+
+import getopt
+import heapq
+import sys 
+import unittest
+
+
+def usage(msg=''):
+    """Display usage information"""
+    print __doc__
+    print msg 
+    sys.exit(1)
+
+
+def semisort(seq, capacity):
+    """Sort a file with local misorderings.
+
+    Args: 
+      seq: A sequeqnce of elements to inspect 
+      capacity: The "buffer size" to retain for potential reordering.
+
+     Yields:
+       Elements reordered to be as sorted as possiable with the cavet
+       that no element can be more than "capacity" places away from
+       its original location.
+    """
+    heap = []
+    try:
+        for _ in range(capacity):
+            heap.append(seq.next())
+    except StopIteration:
+        for line in sorted(heap):
+            yield line 
+        return 
+
+    heapq.heapify(heap)
+    for line in seq:
+        yield heapq.heappop(heap)
+        heapq.heappush(heap,line)
+
+    try:
+        while True:
+            yield heapq.heappop(heap)
+    except IndexError:
+        pass
+
+
+class Tests(unittest.TestCase):
+    def test_short_seq(self):
+        self.assertEquals(
+            list(semisort(iter([3, 2, 1]), 30)),
+            [1, 2, 3])        
+
+    def test_long_seq_sorts_wrong(self):
+        self.assertEquals(
+            list(semisort(iter([2,3,4,5,1]),3)),
+            [2,3,1,4,5])
+
+
+if __name__ == "__main__":
+    args = sys.argv
+
+    try:
+        opts, args = getopt.getopt(sys.argv[1:], "thb:")
+    except getopt.GetoptError:
+        usage()
+    if args: usage()
+    opts = dict(opts)
+    if '-t' in opts:
+        unittest.main(argv=sys.argv[0:1])
+    elif '-h' in opts:
+        usage()
+    else:
+        sort_buffer_size = opts.get('-b', 1000)
+        try:
+            sort_buffer_size = int(sort_buffer_size)
+        except ValueError:
+            usage("-b must be followed by an integer")
+        if sort_buffer_size <= 0:
+            usage("-b must be followed by a positive integer")
+        for line in semisort(sys.stdin, sort_buffer_size):
+            print line.rstrip()
